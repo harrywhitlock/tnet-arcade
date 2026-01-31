@@ -17,6 +17,8 @@ Controls:
 - p: pause/resume
 - r: restart (after game over)
 - w: toggle wrap-around walls
+- h: help overlay
+- s: speed mode (normal/fast)
 - q: quit
 
 Run:
@@ -24,6 +26,7 @@ Run:
 python3 snake.py
 # or
 python3 snake.py --wrap
+python3 snake.py --speed fast
 ```
 
 Notes:

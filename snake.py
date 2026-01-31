@@ -7,6 +7,8 @@ Controls:
 - r: restart (from game over screen)
 - q: quit
 - w: toggle wrap-around walls
+- h: toggle help overlay
+- s: toggle speed mode (normal/fast)
 
 No external dependencies.
 
@@ -29,10 +31,17 @@ from pathlib import Path
 
 # --- Defaults / Settings ---
 DEFAULT_WRAP_WALLS = False
+DEFAULT_SPEED = "normal"  # normal|fast
 START_LENGTH = 3
-TICK_START = 0.10
-TICK_MIN = 0.045
-TICK_DECAY_PER_POINT = 0.0025  # speed up as score increases
+
+# tick = seconds per frame
+TICK_START_NORMAL = 0.10
+TICK_MIN_NORMAL = 0.045
+TICK_DECAY_PER_POINT_NORMAL = 0.0025
+
+TICK_START_FAST = 0.08
+TICK_MIN_FAST = 0.035
+TICK_DECAY_PER_POINT_FAST = 0.0030
 
 HIGHSCORE_PATH = Path(os.path.expanduser("~/.config/tnet-arcade/highscore.json"))
 
@@ -122,8 +131,15 @@ def draw_border(win: "curses._CursesWindow") -> None:
     win.border()
 
 
-def calc_tick(score: int) -> float:
-    return max(TICK_MIN, TICK_START - (score * TICK_DECAY_PER_POINT))
+def tick_params(speed: str) -> tuple[float, float, float]:
+    if speed == "fast":
+        return (TICK_START_FAST, TICK_MIN_FAST, TICK_DECAY_PER_POINT_FAST)
+    return (TICK_START_NORMAL, TICK_MIN_NORMAL, TICK_DECAY_PER_POINT_NORMAL)
+
+
+def calc_tick(score: int, speed: str) -> float:
+    start, tmin, decay = tick_params(speed)
+    return max(tmin, start - (score * decay))
 
 
 def centered(win: "curses._CursesWindow", y: int, text: str) -> None:
@@ -145,7 +161,47 @@ def new_game(h: int, w: int) -> tuple[deque[Point], set[Point], Point, Point, in
     return body, snake_set, food, direction, score
 
 
-def run(stdscr: "curses._CursesWindow", *, wrap_walls: bool) -> int:
+def draw_help(win: "curses._CursesWindow", *, wrap_walls: bool, speed: str) -> None:
+    h, w = win.getmaxyx()
+    lines = [
+        "Help",
+        "",
+        "Arrow keys  move",
+        "p          pause/resume",
+        "w          toggle wrap",
+        "s          toggle speed (normal/fast)",
+        "r          restart (game over)",
+        "q          quit",
+        "h          toggle this help",
+        "",
+        f"wrap: {"on" if wrap_walls else "off"}   speed: {speed}",
+    ]
+
+    box_w = min(w - 4, max(len(x) for x in lines) + 4)
+    box_h = min(h - 4, len(lines) + 2)
+    top = max(1, (h - box_h) // 2)
+    left = max(1, (w - box_w) // 2)
+
+    # draw a simple rectangle
+    for y in range(top, top + box_h):
+        for x in range(left, left + box_w):
+            if y in (top, top + box_h - 1) or x in (left, left + box_w - 1):
+                try:
+                    win.addch(y, x, "#")
+                except curses.error:
+                    pass
+
+    # text
+    ty = top + 1
+    for line in lines[: box_h - 2]:
+        try:
+            win.addstr(ty, left + 2, line[: box_w - 4])
+        except curses.error:
+            pass
+        ty += 1
+
+
+def run(stdscr: "curses._CursesWindow", *, wrap_walls: bool, speed: str) -> int:
     curses.curs_set(0)
     stdscr.nodelay(True)
     stdscr.keypad(True)
@@ -153,7 +209,7 @@ def run(stdscr: "curses._CursesWindow", *, wrap_walls: bool) -> int:
     random.seed()
 
     h, w = stdscr.getmaxyx()
-    if h < 12 or w < 24:
+    if h < 12 or w < 28:
         stdscr.addstr(0, 0, "Terminal too small for Snake. Resize and try again.")
         stdscr.refresh()
         time.sleep(2.0)
@@ -161,6 +217,7 @@ def run(stdscr: "curses._CursesWindow", *, wrap_walls: bool) -> int:
 
     body, snake_set, food, direction, score = new_game(h, w)
     paused = False
+    show_help = False
     high_score = load_highscore()
 
     while True:
@@ -178,11 +235,15 @@ def run(stdscr: "curses._CursesWindow", *, wrap_walls: bool) -> int:
         key = stdscr.getch()
         if key in (ord("q"), ord("Q")):
             return 0
+        if key in (ord("h"), ord("H")):
+            show_help = not show_help
         if key in (ord("p"), ord("P")):
             paused = not paused
         if key in (ord("w"), ord("W")):
             wrap_walls = not wrap_walls
-        if key in DIRS and not paused:
+        if key in (ord("s"), ord("S")):
+            speed = "fast" if speed == "normal" else "normal"
+        if key in DIRS and not paused and not show_help:
             nd = DIRS[key]
             if not (nd.y == -direction.y and nd.x == -direction.x):
                 direction = nd
@@ -191,7 +252,16 @@ def run(stdscr: "curses._CursesWindow", *, wrap_walls: bool) -> int:
             stdscr.erase()
             draw_border(stdscr)
             centered(stdscr, h // 2 - 1, "Paused")
-            centered(stdscr, h // 2, "p resume | w toggle wrap | q quit")
+            centered(stdscr, h // 2, "p resume | h help | q quit")
+            stdscr.refresh()
+            time.sleep(0.06)
+            continue
+
+        # when help overlay is up, freeze game state
+        if show_help:
+            stdscr.erase()
+            draw_border(stdscr)
+            draw_help(stdscr, wrap_walls=wrap_walls, speed=speed)
             stdscr.refresh()
             time.sleep(0.06)
             continue
@@ -231,10 +301,12 @@ def run(stdscr: "curses._CursesWindow", *, wrap_walls: bool) -> int:
         stdscr.erase()
         draw_border(stdscr)
         wrap_txt = "wrap:on" if wrap_walls else "wrap:off"
-        hud = f" Snake | score: {score} | best: {high_score} | {wrap_txt} | p pause | q quit "
+        hud = (
+            f" Snake | score: {score} | best: {high_score} | {wrap_txt} | speed:{speed} "
+            f"| h help | p pause | q quit "
+        )
         centered(stdscr, 0, hud)
 
-        # food
         try:
             stdscr.addch(food.y, food.x, "*")
         except curses.error:
@@ -248,7 +320,7 @@ def run(stdscr: "curses._CursesWindow", *, wrap_walls: bool) -> int:
                 pass
 
         stdscr.refresh()
-        time.sleep(calc_tick(score))
+        time.sleep(calc_tick(score, speed))
 
     # game over
     save_highscore(high_score)
@@ -260,17 +332,28 @@ def run(stdscr: "curses._CursesWindow", *, wrap_walls: bool) -> int:
         centered(stdscr, h // 2 - 2, "Game Over")
         centered(stdscr, h // 2 - 1, f"Score: {score}")
         centered(stdscr, h // 2, f"Best: {high_score}")
-        centered(stdscr, h // 2 + 1, "r restart | w toggle wrap | q quit")
+        centered(stdscr, h // 2 + 1, "r restart | w wrap | s speed | h help | q quit")
         stdscr.refresh()
         k = stdscr.getch()
         if k in (ord("q"), ord("Q")):
             return 0
+        if k in (ord("h"), ord("H")):
+            # one-shot help screen on game over
+            stdscr.erase()
+            draw_border(stdscr)
+            draw_help(stdscr, wrap_walls=wrap_walls, speed=speed)
+            centered(stdscr, h - 2, "press any key")
+            stdscr.refresh()
+            stdscr.getch()
         if k in (ord("w"), ord("W")):
             wrap_walls = not wrap_walls
+        if k in (ord("s"), ord("S")):
+            speed = "fast" if speed == "normal" else "normal"
         if k in (ord("r"), ord("R")):
             stdscr.nodelay(True)
             body, snake_set, food, direction, score = new_game(h, w)
             paused = False
+            show_help = False
             break
 
 
@@ -282,9 +365,15 @@ def main() -> int:
         default=DEFAULT_WRAP_WALLS,
         help="Wrap around walls (instead of dying on collision)",
     )
+    parser.add_argument(
+        "--speed",
+        choices=["normal", "fast"],
+        default=DEFAULT_SPEED,
+        help="Speed mode",
+    )
     args = parser.parse_args()
 
-    return curses.wrapper(lambda s: run(s, wrap_walls=args.wrap))
+    return curses.wrapper(lambda s: run(s, wrap_walls=args.wrap, speed=args.speed))
 
 
 if __name__ == "__main__":
