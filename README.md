@@ -16,11 +16,14 @@ Controls:
 - Arrow keys: move
 - p: pause/resume
 - r: restart (after game over)
+- w: toggle wrap-around walls
 - q: quit
 
 Run:
 ```bash
 python3 snake.py
+# or
+python3 snake.py --wrap
 ```
 
 Notes:

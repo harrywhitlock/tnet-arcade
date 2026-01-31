@@ -6,25 +6,35 @@ Controls:
 - p: pause/resume
 - r: restart (from game over screen)
 - q: quit
+- w: toggle wrap-around walls
 
 No external dependencies.
+
+Notes:
+- Stores a local high score at ~/.config/tnet-arcade/highscore.json
 """
 
 from __future__ import annotations
 
+import argparse
 import curses
+import json
+import os
 import random
 import time
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 
 
-# --- Settings ---
-WRAP_WALLS = False  # True = wrap around edges
+# --- Defaults / Settings ---
+DEFAULT_WRAP_WALLS = False
 START_LENGTH = 3
 TICK_START = 0.10
 TICK_MIN = 0.045
 TICK_DECAY_PER_POINT = 0.0025  # speed up as score increases
+
+HIGHSCORE_PATH = Path(os.path.expanduser("~/.config/tnet-arcade/highscore.json"))
 
 
 @dataclass(frozen=True)
@@ -45,7 +55,7 @@ def add(a: Point, b: Point) -> Point:
     return Point(a.y + b.y, a.x + b.x)
 
 
-def wrap(p: Point, h: int, w: int) -> Point:
+def wrap_point(p: Point, h: int, w: int) -> Point:
     """Wrap point within the playable area (1..h-2, 1..w-2)."""
     py = 1 + ((p.y - 1) % (h - 2))
     px = 1 + ((p.x - 1) % (w - 2))
@@ -54,6 +64,22 @@ def wrap(p: Point, h: int, w: int) -> Point:
 
 def clamp(n: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, n))
+
+
+def load_highscore() -> int:
+    try:
+        data = json.loads(HIGHSCORE_PATH.read_text())
+        hs = int(data.get("high_score", 0))
+        return max(0, hs)
+    except Exception:
+        return 0
+
+
+def save_highscore(score: int) -> None:
+    HIGHSCORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = HIGHSCORE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"high_score": int(score)}, indent=2) + "\n")
+    tmp.replace(HIGHSCORE_PATH)
 
 
 def place_food(h: int, w: int, snake: set[Point]) -> Point:
@@ -65,7 +91,6 @@ def place_food(h: int, w: int, snake: set[Point]) -> Point:
     playable = (h - 2) * (w - 2)
     empty = playable - len(snake)
     if empty <= 0:
-        # should never happen, but avoid infinite loop
         return Point(1, 1)
 
     # If board is dense, scanning is more reliable.
@@ -120,7 +145,7 @@ def new_game(h: int, w: int) -> tuple[deque[Point], set[Point], Point, Point, in
     return body, snake_set, food, direction, score
 
 
-def run(stdscr: "curses._CursesWindow") -> int:
+def run(stdscr: "curses._CursesWindow", *, wrap_walls: bool) -> int:
     curses.curs_set(0)
     stdscr.nodelay(True)
     stdscr.keypad(True)
@@ -136,6 +161,7 @@ def run(stdscr: "curses._CursesWindow") -> int:
 
     body, snake_set, food, direction, score = new_game(h, w)
     paused = False
+    high_score = load_highscore()
 
     while True:
         # resize handling
@@ -154,6 +180,8 @@ def run(stdscr: "curses._CursesWindow") -> int:
             return 0
         if key in (ord("p"), ord("P")):
             paused = not paused
+        if key in (ord("w"), ord("W")):
+            wrap_walls = not wrap_walls
         if key in DIRS and not paused:
             nd = DIRS[key]
             if not (nd.y == -direction.y and nd.x == -direction.x):
@@ -162,8 +190,8 @@ def run(stdscr: "curses._CursesWindow") -> int:
         if paused:
             stdscr.erase()
             draw_border(stdscr)
-            centered(stdscr, h // 2, "Paused — press p to resume")
-            centered(stdscr, h // 2 + 1, "q to quit")
+            centered(stdscr, h // 2 - 1, "Paused")
+            centered(stdscr, h // 2, "p resume | w toggle wrap | q quit")
             stdscr.refresh()
             time.sleep(0.06)
             continue
@@ -171,8 +199,8 @@ def run(stdscr: "curses._CursesWindow") -> int:
         head = body[0]
         new_head = add(head, direction)
 
-        if WRAP_WALLS:
-            new_head = wrap(new_head, h, w)
+        if wrap_walls:
+            new_head = wrap_point(new_head, h, w)
         else:
             if (
                 new_head.y <= 0
@@ -180,12 +208,10 @@ def run(stdscr: "curses._CursesWindow") -> int:
                 or new_head.x <= 0
                 or new_head.x >= w - 1
             ):
-                game_over = True
                 break
 
         tail = body[-1]
         if new_head in snake_set and new_head != tail:
-            game_over = True
             break
 
         body.appendleft(new_head)
@@ -194,6 +220,8 @@ def run(stdscr: "curses._CursesWindow") -> int:
         ate = new_head == food
         if ate:
             score += 1
+            if score > high_score:
+                high_score = score
             food = place_food(h, w, snake_set)
         else:
             removed = body.pop()
@@ -202,7 +230,8 @@ def run(stdscr: "curses._CursesWindow") -> int:
         # render
         stdscr.erase()
         draw_border(stdscr)
-        hud = f" Snake | score: {score} | p pause | q quit "
+        wrap_txt = "wrap:on" if wrap_walls else "wrap:off"
+        hud = f" Snake | score: {score} | best: {high_score} | {wrap_txt} | p pause | q quit "
         centered(stdscr, 0, hud)
 
         # food
@@ -222,17 +251,22 @@ def run(stdscr: "curses._CursesWindow") -> int:
         time.sleep(calc_tick(score))
 
     # game over
+    save_highscore(high_score)
+
     stdscr.nodelay(False)
     while True:
         stdscr.erase()
         draw_border(stdscr)
-        centered(stdscr, h // 2 - 1, "Game Over")
-        centered(stdscr, h // 2, f"Score: {score}")
-        centered(stdscr, h // 2 + 1, "r to restart | q to quit")
+        centered(stdscr, h // 2 - 2, "Game Over")
+        centered(stdscr, h // 2 - 1, f"Score: {score}")
+        centered(stdscr, h // 2, f"Best: {high_score}")
+        centered(stdscr, h // 2 + 1, "r restart | w toggle wrap | q quit")
         stdscr.refresh()
         k = stdscr.getch()
         if k in (ord("q"), ord("Q")):
             return 0
+        if k in (ord("w"), ord("W")):
+            wrap_walls = not wrap_walls
         if k in (ord("r"), ord("R")):
             stdscr.nodelay(True)
             body, snake_set, food, direction, score = new_game(h, w)
@@ -241,7 +275,16 @@ def run(stdscr: "curses._CursesWindow") -> int:
 
 
 def main() -> int:
-    return curses.wrapper(run)
+    parser = argparse.ArgumentParser(prog="snake")
+    parser.add_argument(
+        "--wrap",
+        action="store_true",
+        default=DEFAULT_WRAP_WALLS,
+        help="Wrap around walls (instead of dying on collision)",
+    )
+    args = parser.parse_args()
+
+    return curses.wrapper(lambda s: run(s, wrap_walls=args.wrap))
 
 
 if __name__ == "__main__":
