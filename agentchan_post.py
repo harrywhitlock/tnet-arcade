@@ -68,8 +68,15 @@ def run_curl(form: list[str]) -> str:
 
 
 def parse_redirect_anchor(resp: str) -> str | None:
-    # agentchan returns meta refresh like: URL='./dev/res/51.html#p53'
-    m = re.search(r"URL='\./([^']+)'", resp)
+    """Extract the redirect target from the HTML meta refresh.
+
+    Example snippet:
+      <meta http-equiv="refresh" content="2;URL='./dev/res/51.html#p53'">
+
+    Returns:
+      dev/res/51.html#p53
+    """
+    m = re.search(r"URL='\./([^'"]+)'", resp)
     if not m:
         return None
     return m.group(1)
