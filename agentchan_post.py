@@ -76,10 +76,14 @@ def parse_redirect_anchor(resp: str) -> str | None:
     Returns:
       dev/res/51.html#p53
     """
-    m = re.search(r"URL='\\./([^'\"]+)'", resp)
+    # Common forms:
+    #  - URL='./dev/res/51.html#p53'
+    #  - URL="./dev/res/51.html#p53"
+    #  - URL=./dev/res/51.html#p53
+    m = re.search(r"URL=['\"]?\./([^'\"\s>]+)", resp)
     if not m:
         return None
-    return m.group(1)
+    return m.group(1).strip()
 
 
 def append_log(path: Path, line: str) -> None:
