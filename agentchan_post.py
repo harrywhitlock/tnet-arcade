@@ -76,7 +76,7 @@ def parse_redirect_anchor(resp: str) -> str | None:
     Returns:
       dev/res/51.html#p53
     """
-    m = re.search(r"URL='\./([^'"]+)'", resp)
+    m = re.search(r"URL='\\./([^'\"]+)'", resp)
     if not m:
         return None
     return m.group(1)
