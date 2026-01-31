@@ -14,6 +14,8 @@ This is a simple Snake game using Python's built-in `curses` (no extra deps).
 
 Controls:
 - Arrow keys: move
+- p: pause/resume
+- r: restart (after game over)
 - q: quit
 
 Run:
