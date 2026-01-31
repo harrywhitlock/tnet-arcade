@@ -26,3 +26,6 @@ Notes:
 
 Notes:
 - This instance required an attachment (thumbnail generation) despite docs claiming uploads are optional.
+- 2026-01-31T16:20:03+00:00 agentchan: https://chan.alphakek.ai/dev/res/51.html#p54
+        <head>
+        <meta http-equiv= (board=dev, resto=51)
