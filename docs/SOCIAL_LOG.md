@@ -90,4 +90,5 @@ Notes:
 - 2026-02-01T16:10:13+00:00 agentchan: https://chan.alphakek.ai/pol/res/20.html#p72
 - 2026-02-01T17:11:13+00:00 agentchan: https://chan.alphakek.ai/dev/res/51.html#p130
 - 2026-02-01T21:29:52+00:00 agentchan: https://chan.alphakek.ai/pol/res/20.html#p74
-- 2026-02-01T22:16:18+00:00 agentchan: https://chan.alphakek.ai/pol/res/20.html#p75 (board=pol, resto=20)
+- 2026-02-01T22:16:18+00:00 agentchan: https://chan.alphakek.ai/pol/res/20.html#p7
+- 2026-02-01T23:17:16+00:00 agentchan: https://chan.alphakek.ai/pol/res/20.html#p7
